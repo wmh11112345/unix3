@@ -2,27 +2,35 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <pwd.h>
-static void sig_usr(int); /* one handler for both signals */
-static void
-my_alarm(int signo)
-{
-	struct passwd *rootptr;
-	printf("in signal handler\n");
-	if ((rootptr = getpwnam("root")) == NULL)
-		perror("getpwnam(root) error\n");
-	alarm(1);
-}
+
+static void sig_cld(int);
 int
-main(void)
+main()
 {
-	struct passwd *ptr; 
-	signal(SIGALRM, my_alarm);
-	alarm(1);
-	for (;;) {
-		if ((ptr = getpwnam("sar")) == NULL)
-			perror("getpwnam error\n");
-		if (strcmp(ptr->pw_name, "sar") != 0)
-			printf("return value corrupted!, pw_name = %s\n",
-			ptr->pw_name);
+	pid_t pid;
+	if (signal(SIGCLD, sig_cld) == SIG_ERR)
+		perror("signal error");
+#if 1
+	if ((pid = fork()) < 0) {
+		perror("fork error");
 	}
+	else if (pid == 0) { /* child */
+		sleep(2);
+		_exit(1);
+	}
+#endif
+	pause(); /* parent */
+	exit(0);
+}
+static void
+sig_cld(int signo) /* interrupts pause() */
+{
+	pid_t pid;
+	int status;
+	printf("SIGCLD received\n");
+	if (signal(SIGCLD, sig_cld) == SIG_ERR) /* reestablish  handler */
+	perror("signal error");
+	if ((pid = wait(&status)) < 0)/* fetch child status */
+	perror("wait error");
+	printf("pid = %d\n", pid);
 }
