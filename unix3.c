@@ -6,47 +6,44 @@
 #include <setjmp.h>
 #include <signal.h>
 #include <unistd.h>
+
 static jmp_buf env_alrm;
-static void
-sig_alrm(int signo)
+static void sig_quit(int);
+void err_sys(const char* string)
 {
-	longjmp(env_alrm, 1);
+	printf(string);
 }
-unsigned int
-sleep2(unsigned int seconds)
-{
-	if (signal(SIGALRM, sig_alrm) == SIG_ERR)
-		return(seconds);
-	if (setjmp(env_alrm) == 0) {
-		alarm(seconds); /* start the timer */
-		pause(); /* next caught signal wakes us up */
-	}
-	return(alarm(0)); /* turn off timer, return unslept time */
-}
-unsigned int sleep2(unsigned int);
-static void sig_int(int);
 int
 main(void)
 {
-	unsigned int unslept;
-	if (signal(SIGINT, sig_int) == SIG_ERR)
-		perror("signal(SIGINT) error");
-	unslept = sleep2(5);
-	printf("sleep2 returned: %u\n", unslept);
+	sigset_t newmask, oldmask, pendmask;
+	if (signal(SIGQUIT, sig_quit) == SIG_ERR)
+		err_sys("can¡¯t catch SIGQUIT");
+	/*
+	* Block SIGQUIT and save current signal mask.
+	*/
+	sigemptyset(&newmask);
+	sigaddset(&newmask, SIGQUIT);
+	if (sigprocmask(SIG_BLOCK, &newmask, &oldmask) < 0)
+		err_sys("SIG_BLOCK error");
+	sleep(5); /* SIGQUIT here will remain pending */
+	if (sigpending(&pendmask) < 0)
+		err_sys("sigpending error");
+	if (sigismember(&pendmask, SIGQUIT))
+		printf("\nSIGQUIT pending\n");
+	/*
+	* Restore signal mask which unblocks SIGQUIT.
+	*/
+	if (sigprocmask(SIG_UNBLOCK, &newmask, NULL) < 0)
+		err_sys("SIG_SETMASK error");
+	printf("SIGQUIT unblocked\n");
+	sleep(5); /* SIGQUIT here will terminate with core file */
 	exit(0);
 }
 static void
-sig_int(int signo)
+sig_quit(int signo)
 {
-	int i, j;
-	volatile int k;
-	/*
-	* Tune these loops to run for more than 5 seconds
-	* on whatever system this test program is run.
-	*/
-	printf("\nsig_int starting\n");
-	for (i = 0; i < 300000; i++)
-	for (j = 0; j < 4000; j++)
-		k += i * j;
-	printf("sig_int finished\n");
+	printf("caught SIGQUIT\n");
+	if (signal(SIGQUIT, SIG_DFL) == SIG_ERR)
+		err_sys("can¡¯t reset SIGQUIT");
 }
