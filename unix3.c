@@ -38,47 +38,48 @@ pr_mask(const char *str)
 	}
 	errno = errno_save; /* restore errno */
 }
-#include <setjmp.h>
-#include <time.h>
-static void sig_usr1(int);
-static void sig_alrm(int);
-static sigjmp_buf jmpbuf;
-static volatile sig_atomic_t canjump;
+static void sig_int(int);
 int
 main(void)
 {
-	if (signal(SIGUSR1, sig_usr1) == SIG_ERR)
-		err_sys("signal(SIGUSR1) error");
-	if (signal(SIGALRM, sig_alrm) == SIG_ERR)
-		err_sys("signal(SIGALRM) error");
-	pr_mask("starting main: "); /* Figure 10.14 */
+	sigset_t newmask, oldmask, waitmask;
+	pr_mask("program start: ");
+	if (signal(SIGINT, sig_int) == SIG_ERR)
+		err_sys("signal(SIGINT) error");
+	sigemptyset(&waitmask);
+	sigaddset(&waitmask, SIGUSR1);
+	sigemptyset(&newmask);
+	sigaddset(&newmask, SIGINT);
+	/*
+	* Block SIGINT and save current signal mask.
+	*/
+	if (sigprocmask(SIG_BLOCK, &newmask, &oldmask) < 0)
+		err_sys("SIG_BLOCK error");
+	/*
+	* Critical region of code.
+	*/
 	printf("the proccess id is %d\n", getpid());
-	if (sigsetjmp(jmpbuf, 1)) {
-		pr_mask("ending main: ");
-		exit(0);
-	}
-	canjump = 1; /* now sigsetjmp() is OK */
-	for (;;)
-		pause();
+	pr_mask("in critical region: ");
+	/*
+	* Pause, allowing all signals except SIGUSR1.
+	*/
+	pr_mask("before the sigsuspend:");
+	if (sigsuspend(&waitmask) != -1)
+		err_sys("sigsuspend error");
+	pr_mask("after return from sigsuspend: ");
+	/*
+	* Reset signal mask which unblocks SIGINT.
+	*/
+	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0)
+		err_sys("SIG_SETMASK error");
+	/*
+	* And continue processing ...
+	*/
+	pr_mask("program exit: ");
+	exit(0);
 }
 static void
-sig_usr1(int signo)
+sig_int(int signo)
 {
-	time_t starttime;
-	if (canjump == 0)
-		return; /* unexpected signal, ignore */
-	pr_mask("starting sig_usr1: ");
-	alarm(3); /* SIGALRM in 3 seconds */
-	starttime = time(NULL);
-	for (;;) /* busy wait for 5 seconds */
-	if (time(NULL) > starttime + 5)
-		break;
-	pr_mask("finishing sig_usr1: ");
-	canjump = 0;
-	siglongjmp(jmpbuf, 1); /* jump back to main, don¡¯t return */
-}
-static void
-sig_alrm(int signo)
-{
-	pr_mask("in sig_alrm: ");
+	pr_mask("\nin sig_int: ");
 }
