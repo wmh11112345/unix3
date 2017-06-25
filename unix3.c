@@ -3,34 +3,50 @@
 #include <stdlib.h>
 #include <pwd.h>
 
-static void sig_cld(int);
-int
-main()
+#include <setjmp.h>
+#include <signal.h>
+#include <unistd.h>
+static jmp_buf env_alrm;
+static void
+sig_alrm(int signo)
 {
-	pid_t pid;
-	if (signal(SIGCLD, sig_cld) == SIG_ERR)
-		perror("signal error");
-#if 1
-	if ((pid = fork()) < 0) {
-		perror("fork error");
+	longjmp(env_alrm, 1);
+}
+unsigned int
+sleep2(unsigned int seconds)
+{
+	if (signal(SIGALRM, sig_alrm) == SIG_ERR)
+		return(seconds);
+	if (setjmp(env_alrm) == 0) {
+		alarm(seconds); /* start the timer */
+		pause(); /* next caught signal wakes us up */
 	}
-	else if (pid == 0) { /* child */
-		sleep(2);
-		_exit(1);
-	}
-#endif
-	pause(); /* parent */
+	return(alarm(0)); /* turn off timer, return unslept time */
+}
+unsigned int sleep2(unsigned int);
+static void sig_int(int);
+int
+main(void)
+{
+	unsigned int unslept;
+	if (signal(SIGINT, sig_int) == SIG_ERR)
+		perror("signal(SIGINT) error");
+	unslept = sleep2(5);
+	printf("sleep2 returned: %u\n", unslept);
 	exit(0);
 }
 static void
-sig_cld(int signo) /* interrupts pause() */
+sig_int(int signo)
 {
-	pid_t pid;
-	int status;
-	printf("SIGCLD received\n");
-	if (signal(SIGCLD, sig_cld) == SIG_ERR) /* reestablish  handler */
-	perror("signal error");
-	if ((pid = wait(&status)) < 0)/* fetch child status */
-	perror("wait error");
-	printf("pid = %d\n", pid);
+	int i, j;
+	volatile int k;
+	/*
+	* Tune these loops to run for more than 5 seconds
+	* on whatever system this test program is run.
+	*/
+	printf("\nsig_int starting\n");
+	for (i = 0; i < 300000; i++)
+	for (j = 0; j < 4000; j++)
+		k += i * j;
+	printf("sig_int finished\n");
 }
