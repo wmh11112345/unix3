@@ -13,73 +13,41 @@ void err_sys(const char* string)
 {
 	printf(string);
 }
-#include <errno.h>
-void
-pr_mask(const char *str)
+volatile sig_atomic_t quitflag; /* set nonzero by signal handler */
+static void
+sig_int(int signo) /* one signal handler for SIGINT and SIGQUIT */
 {
-	sigset_t sigset;
-	int errno_save;
-	errno_save = errno; /* we can be called by signal handlers */
-	if (sigprocmask(SIG_BLOCK, NULL, &sigset) < 0) {
-		err_sys("sigprocmask error");
-	}
-	else {
-		printf("%s", str);
-		if (sigismember(&sigset, SIGINT))
-			printf(" SIGINT");
-		if (sigismember(&sigset, SIGQUIT))
-			printf(" SIGQUIT");
-		if (sigismember(&sigset, SIGUSR1))
-			printf(" SIGUSR1");
-		if (sigismember(&sigset, SIGALRM))
-			printf(" SIGALRM");
-		/* remaining signals can go here */
-		printf("\n");
-	}
-	errno = errno_save; /* restore errno */
+	if (signo == SIGINT)
+		printf("\ninterrupt\n");
+	else if (signo == SIGQUIT)
+		quitflag = 1; /* set flag for main loop */
 }
-static void sig_int(int);
 int
 main(void)
 {
-	sigset_t newmask, oldmask, waitmask;
-	pr_mask("program start: ");
+	sigset_t newmask, oldmask, zeromask;
 	if (signal(SIGINT, sig_int) == SIG_ERR)
 		err_sys("signal(SIGINT) error");
-	sigemptyset(&waitmask);
-	sigaddset(&waitmask, SIGUSR1);
+	if (signal(SIGQUIT, sig_int) == SIG_ERR)
+		err_sys("signal(SIGQUIT) error");
+	sigemptyset(&zeromask);
 	sigemptyset(&newmask);
-	sigaddset(&newmask, SIGINT);
+	sigaddset(&newmask, SIGQUIT);
 	/*
-	* Block SIGINT and save current signal mask.
+	* Block SIGQUIT and save current signal mask.
 	*/
 	if (sigprocmask(SIG_BLOCK, &newmask, &oldmask) < 0)
 		err_sys("SIG_BLOCK error");
+	while (quitflag == 0)
+		sigsuspend(&zeromask);
 	/*
-	* Critical region of code.
+	* SIGQUIT has been caught and is now blocked; do whatever.
 	*/
-	printf("the proccess id is %d\n", getpid());
-	pr_mask("in critical region: ");
+	quitflag = 0;
 	/*
-	* Pause, allowing all signals except SIGUSR1.
-	*/
-	pr_mask("before the sigsuspend:");
-	if (sigsuspend(&waitmask) != -1)
-		err_sys("sigsuspend error");
-	pr_mask("after return from sigsuspend: ");
-	/*
-	* Reset signal mask which unblocks SIGINT.
+	* Reset signal mask which unblocks SIGQUIT.
 	*/
 	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0)
 		err_sys("SIG_SETMASK error");
-	/*
-	* And continue processing ...
-	*/
-	pr_mask("program exit: ");
 	exit(0);
-}
-static void
-sig_int(int signo)
-{
-	pr_mask("\nin sig_int: ");
 }
