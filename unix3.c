@@ -14,72 +14,44 @@ void err_sys(const char* string)
 	printf(string);
 }
 
-static void
-sig_int(int signo)
-{
-	printf("caught SIGINT\n");
-}
-static void
-sig_chld(int signo)
-{
-	printf("caught SIGCHLD\n");
-}
-
-#include <sys/wait.h>
-#include <errno.h>
-#include <signal.h>
-#include <unistd.h>
-ssize_t /* Read "n" bytes from a descriptor */
-readn(int fd, void *ptr, size_t n)
-{
-	size_t nleft;
-	ssize_t nread;
-	nleft = n;
-	while (nleft > 0) {
-		if ((nread = read(fd, ptr, nleft)) < 0) {
-			if (nleft == n)
-				return(-1); /* error, return -1 */
-			else
-				break; /* error, return amount read so far */
-		}
-		else if (nread == 0) {
-			break; /* EOF */
-		}
-		nleft -= nread;
-		ptr += nread;
-	}
-	return(n - nleft); /* return >= 0 */
-}
-ssize_t /* Write "n" bytes to a descriptor */
-writen(int fd, const void *ptr, size_t n)
-{
-	size_t nleft;
-	ssize_t nwritten;
-	nleft = n;
-	while (nleft > 0) {
-		if ((nwritten = write(fd, ptr, nleft)) < 0) {
-			if (nleft == n)
-				return(-1); /* error, return -1 */
-			else
-				break; /* error, return amount written so far */
-		}
-		else if (nwritten == 0) {
-			break;
-		}
-		nleft -= nwritten;
-		ptr += nwritten;
-	}
-	return(n - nleft); /* return >= 0 */
-}
-
+#include <fcntl.h>
+#include <sys/mman.h>
+#define COPYINCR (1024*1024*1024) /* 1 GB */
 int
-main(void)
+main(int argc, char *argv[])
 {
-	if (signal(SIGINT, sig_int) == SIG_ERR)
-		err_sys("signal(SIGINT) error");
-	if (signal(SIGCHLD, sig_chld) == SIG_ERR)
-		err_sys("signal(SIGCHLD) error");
-	if (system("/bin/ed") < 0)
-		err_sys("system() error");
+	int fdin, fdout;
+	void *src, *dst;
+	size_t copysz;
+	struct stat sbuf;
+	off_t fsz = 0;
+	if (argc != 3)
+		err_sys("usage: %s <fromfile> <tofile>");
+	if ((fdin = open(argv[1], O_RDONLY)) < 0)
+		err_sys("can¡¯t open %s for reading");
+	if ((fdout = open(argv[2], O_RDWR | O_CREAT | O_TRUNC,
+		S_IWUSR|S_IWOTH|S_IWGRP)) < 0)
+		err_sys("can¡¯t creat %s for writing");
+	if (fstat(fdin, &sbuf) < 0) /* need size of input file */
+		err_sys("fstat error");
+	if (ftruncate(fdout, sbuf.st_size) < 0) /* set output file size */
+		err_sys("ftruncate error");
+	while (fsz < sbuf.st_size) {
+		if ((sbuf.st_size - fsz) > COPYINCR)
+			copysz = COPYINCR;
+		else
+			copysz = sbuf.st_size - fsz;
+		if ((src = mmap(0, copysz, PROT_READ, MAP_SHARED,
+			fdin, fsz)) == MAP_FAILED)
+			err_sys("mmap error for input");
+		if ((dst = mmap(0, copysz, PROT_READ | PROT_WRITE,
+			MAP_SHARED, fdout, fsz)) == MAP_FAILED)
+			err_sys("mmap error for output");
+		memcpy(dst, src, copysz); /* does the file copy */
+		msync(dst, copysz, MS_SYNC);
+		munmap(src, copysz);
+		munmap(dst, copysz);
+		fsz += copysz;
+	}
 	exit(0);
 }
